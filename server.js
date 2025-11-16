@@ -28,15 +28,26 @@ mongoose.connection.once('open', () => {
   initGridFS();
 });
 
+// ----------------------
 // CORS configuration
+// ----------------------
+// Hardcode your frontend URL here
+const FRONTEND_URL = 'https://frontend-aureo.vercel.app';
+
 const corsOptions = {
-  origin: process.env.CLIENT_URL || '*', // Allow any origin if frontend URL not set
-  credentials: true,
+  origin: FRONTEND_URL, // must be the exact frontend URL
+  credentials: true,    // allow cookies/sessions
   optionsSuccessStatus: 200
 };
 
-// Middleware
 app.use(cors(corsOptions));
+
+// Handle preflight OPTIONS requests for all routes
+app.options('*', cors(corsOptions));
+
+// ----------------------
+// Middleware
+// ----------------------
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -57,22 +68,28 @@ app.get('/', (req, res) => {
   });
 });
 
+// ----------------------
 // API Routes
+// ----------------------
 app.use('/api/auth', authRoutes);
 app.use('/api/songs', songRoutes);
 app.use('/api/admin', adminRoutes);
 
+// ----------------------
 // Error handling
+// ----------------------
 app.use(notFound);
 app.use(errorHandler);
 
+// ----------------------
 // Start server
+// ----------------------
 const PORT = process.env.PORT || 5000; // Render provides process.env.PORT automatically
 app.listen(PORT, () => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode`);
   console.log(`🎵 Music Player API listening on port ${PORT}`);
-  console.log(`📍 Base URL: ${process.env.CLIENT_URL || 'http://localhost'}:${PORT}`);
+  console.log(`📍 Base URL: ${FRONTEND_URL}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('Available routes:');
   console.log(`  - Auth: /api/auth`);
@@ -81,7 +98,9 @@ app.listen(PORT, () => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 });
 
+// ----------------------
 // Handle unhandled promise rejections
+// ----------------------
 process.on('unhandledRejection', (err) => {
   console.error('❌ Unhandled Rejection:', err);
   process.exit(1);
