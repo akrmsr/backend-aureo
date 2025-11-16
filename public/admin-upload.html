@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - Upload Song</title>
+</head>
+<body>
+  <h2>Upload New Song</h2>
+
+  <!-- This form will upload song files to your server -->
+  <form action="http://localhost:5000/api/admin/songs/upload" method="POST" enctype="multipart/form-data">
+
+    <label>Title:</label><br>
+    <input type="text" name="title" required><br><br>
+
+    <label>Artist:</label><br>
+    <input type="text" name="artist" required><br><br>
+
+    <label>Album:</label><br>
+    <input type="text" name="album"><br><br>
+
+    <label>Genre:</label><br>
+    <input type="text" name="genre" required><br><br>
+
+    <label>Audio File:</label><br>
+    <input type="file" name="audioFile" accept="audio/*" required><br><br>
+
+    <label>Cover Image:</label><br>
+    <input type="file" name="coverImage" accept="image/*"><br><br>
+
+    <button type="submit">Upload Song</button>
+  </form>
+
+</body>
+</html>
