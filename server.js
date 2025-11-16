@@ -16,7 +16,7 @@ const adminRoutes = require('./src/routes/admin');
 // Initialize Express app
 const app = express();
 
-// ✅ Serve static frontend files (this must be ABOVE all routes)
+// Serve static frontend files (optional if frontend is separate)
 app.use(express.static('public'));
 
 // Connect to MongoDB
@@ -30,7 +30,7 @@ mongoose.connection.once('open', () => {
 
 // CORS configuration
 const corsOptions = {
-  origin: process.env.CLIENT_URL || 'http://localhost:3000',
+  origin: process.env.CLIENT_URL || '*', // Allow any origin if frontend URL not set
   credentials: true,
   optionsSuccessStatus: 200
 };
@@ -57,30 +57,27 @@ app.get('/', (req, res) => {
   });
 });
 
-// ✅ API Routes
+// API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/songs', songRoutes);
 app.use('/api/admin', adminRoutes);
 
-// ✅ Keep static files ABOVE error handlers
-// ❌ Do not place notFound/errorHandler above express.static
-
-// Error handling (keep these at the very bottom)
+// Error handling
 app.use(notFound);
 app.use(errorHandler);
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5000; // Render provides process.env.PORT automatically
 app.listen(PORT, () => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode`);
   console.log(`🎵 Music Player API listening on port ${PORT}`);
-  console.log(`📍 Base URL: http://localhost:${PORT}`);
+  console.log(`📍 Base URL: ${process.env.CLIENT_URL || 'http://localhost'}:${PORT}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('Available routes:');
-  console.log(`  - Auth: http://localhost:${PORT}/api/auth`);
-  console.log(`  - Songs: http://localhost:${PORT}/api/songs`);
-  console.log(`  - Admin: http://localhost:${PORT}/api/admin`);
+  console.log(`  - Auth: /api/auth`);
+  console.log(`  - Songs: /api/songs`);
+  console.log(`  - Admin: /api/admin`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 });
 
