@@ -1,7 +1,46 @@
-// src/config/constants.js
+// src/utils/constants.js
 
-// Genre List
-const GENRES = [
+// API Base URL - Make sure this matches your backend
+export const API_URL = process.env.REACT_APP_API_URL || 'https://backend-aureo.vercel.app';
+
+// API Endpoints
+export const ENDPOINTS = {
+  // Authentication
+  SIGNUP: '/api/auth/register',
+  LOGIN: '/api/auth/login',
+  LOGOUT: '/api/auth/logout',
+  ME: '/api/auth/me',
+  
+  // Songs
+  SONGS: '/api/songs',
+  MY_SONGS: '/api/songs/my-songs',
+  SONG_BY_ID: (id) => `/api/songs/${id}`,
+  UPLOAD_SONG: '/api/songs/upload',
+  UPDATE_SONG: (id) => `/api/songs/${id}`,
+  DELETE_SONG: (id) => `/api/songs/${id}`,
+  SEARCH_SONGS: '/api/songs/search',
+  GENRES: '/api/songs/genres',
+  INCREMENT_PLAY: (id) => `/api/songs/${id}/play`,
+  
+  // Streaming
+  STREAM_AUDIO: (fileId) => `/api/songs/stream/audio/${fileId}`,
+  STREAM_IMAGE: (fileId) => `/api/songs/stream/image/${fileId}`,
+  
+  // Admin
+  ADMIN_USERS: '/api/admin/users',
+  ADMIN_USER_BY_ID: (id) => `/api/admin/users/${id}`,
+  ADMIN_DELETE_USER: (id) => `/api/admin/users/${id}`,
+  ADMIN_SONGS: '/api/admin/songs',
+  ADMIN_UPLOAD: '/api/admin/songs/upload',
+  ADMIN_UPDATE_SONG: (id) => `/api/admin/songs/${id}`,
+  ADMIN_DELETE_SONG: (id) => `/api/admin/songs/${id}`,
+  ADMIN_MAKE_DEFAULT: (id) => `/api/admin/songs/${id}/default`,
+  ADMIN_STATISTICS: '/api/admin/statistics',
+  ADMIN_LOGS: '/api/admin/logs'
+};
+
+// Genres (matches backend)
+export const GENRES = [
   'Pop',
   'Rock',
   'Hip-Hop',
@@ -28,46 +67,96 @@ const GENRES = [
   'Other'
 ];
 
-// File size limits (in bytes)
-const MAX_AUDIO_SIZE = (process.env.MAX_AUDIO_SIZE || 50) * 1024 * 1024; // 50MB default
-const MAX_IMAGE_SIZE = (process.env.MAX_IMAGE_SIZE || 5) * 1024 * 1024;  // 5MB default
+// File size limits (in MB)
+export const FILE_LIMITS = {
+  MAX_AUDIO_SIZE: 50, // 50MB
+  MAX_IMAGE_SIZE: 5   // 5MB
+};
 
 // Allowed file types
-const ALLOWED_AUDIO_TYPES = ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/x-m4a'];
-const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+export const ALLOWED_FILE_TYPES = {
+  AUDIO: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/x-m4a'],
+  IMAGE: ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+};
 
 // Allowed file extensions
-const ALLOWED_AUDIO_EXTENSIONS = ['.mp3', '.wav', '.ogg', '.m4a'];
-const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
+export const ALLOWED_EXTENSIONS = {
+  AUDIO: ['.mp3', '.wav', '.ogg', '.m4a'],
+  IMAGE: ['.jpg', '.jpeg', '.png', '.webp']
+};
 
 // Pagination defaults
-const DEFAULT_PAGE = 1;
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
+export const PAGINATION = {
+  DEFAULT_PAGE: 1,
+  DEFAULT_LIMIT: 20,
+  MAX_LIMIT: 100
+};
 
 // User roles
-const USER_ROLES = {
+export const USER_ROLES = {
   USER: 'user',
   ADMIN: 'admin'
 };
 
-// Session configuration
-const SESSION_CONFIG = {
-  MAX_AGE: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
-  COOKIE_NAME: 'connect.sid'
+// Route paths
+export const ROUTES = {
+  HOME: '/',
+  LOGIN: '/login',
+  SIGNUP: '/signup',
+  PROFILE: '/profile',
+  MY_SONGS: '/my-songs',
+  UPLOAD: '/upload',
+  ADMIN_DASHBOARD: '/admin',
+  ADMIN_USERS: '/admin/users',
+  ADMIN_SONGS: '/admin/songs',
+  ADMIN_UPLOAD: '/admin/upload'
 };
 
-module.exports = {
+// Local storage keys
+export const STORAGE_KEYS = {
+  THEME: 'theme',
+  VOLUME: 'volume',
+  REPEAT_MODE: 'repeatMode',
+  SHUFFLE: 'shuffle',
+  LAST_PLAYLIST: 'lastPlaylist'
+};
+
+// Toast/Notification types
+export const NOTIFICATION_TYPES = {
+  SUCCESS: 'success',
+  ERROR: 'error',
+  WARNING: 'warning',
+  INFO: 'info'
+};
+
+// Audio player states
+export const PLAYER_STATES = {
+  PLAYING: 'playing',
+  PAUSED: 'paused',
+  STOPPED: 'stopped',
+  LOADING: 'loading',
+  ERROR: 'error'
+};
+
+// Repeat modes
+export const REPEAT_MODES = {
+  OFF: 'off',
+  ALL: 'all',
+  ONE: 'one'
+};
+
+export default {
+  API_URL,
+  ENDPOINTS,
   GENRES,
-  MAX_AUDIO_SIZE,
-  MAX_IMAGE_SIZE,
-  ALLOWED_AUDIO_TYPES,
-  ALLOWED_IMAGE_TYPES,
-  ALLOWED_AUDIO_EXTENSIONS,
-  ALLOWED_IMAGE_EXTENSIONS,
-  DEFAULT_PAGE,
-  DEFAULT_LIMIT,
-  MAX_LIMIT,
+  FILE_LIMITS,
+  ALLOWED_FILE_TYPES,
+  ALLOWED_EXTENSIONS,
+  PAGINATION,
   USER_ROLES,
-  SESSION_CONFIG
+  ROUTES,
+  STORAGE_KEYS,
+  NOTIFICATION_TYPES,
+  PLAYER_STATES,
+  REPEAT_MODES
 };

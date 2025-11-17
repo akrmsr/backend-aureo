@@ -1,7 +1,5 @@
 // src/middleware/upload.js
 const multer = require('multer');
-const { GridFsStorage } = require('multer-gridfs-storage');
-const crypto = require('crypto');
 const path = require('path');
 const {
   MAX_AUDIO_SIZE,
@@ -12,62 +10,19 @@ const {
   ALLOWED_IMAGE_EXTENSIONS
 } = require('../config/constants');
 
-// GridFS Storage for Audio Files
-const audioStorage = new GridFsStorage({
-  url: process.env.MONGODB_URI,
-  options: { useUnifiedTopology: true },
-  file: (req, file) => {
-    return new Promise((resolve, reject) => {
-      crypto.randomBytes(16, (err, buf) => {
-        if (err) {
-          return reject(err);
-        }
-        const filename = buf.toString('hex') + path.extname(file.originalname);
-        const fileInfo = {
-          filename: filename,
-          bucketName: 'songs',
-          metadata: {
-            originalName: file.originalname,
-            uploadedBy: req.session?.userId || 'anonymous',
-            uploadDate: new Date()
-          }
-        };
-        resolve(fileInfo);
-      });
-    });
-  }
-});
-
-// GridFS Storage for Images
-const imageStorage = new GridFsStorage({
-  url: process.env.MONGODB_URI,
-  options: { useUnifiedTopology: true },
-  file: (req, file) => {
-    return new Promise((resolve, reject) => {
-      crypto.randomBytes(16, (err, buf) => {
-        if (err) {
-          return reject(err);
-        }
-        const filename = buf.toString('hex') + path.extname(file.originalname);
-        const fileInfo = {
-          filename: filename,
-          bucketName: 'images',
-          metadata: {
-            originalName: file.originalname,
-            uploadedBy: req.session?.userId || 'anonymous',
-            uploadDate: new Date()
-          }
-        };
-        resolve(fileInfo);
-      });
-    });
-  }
-});
+// ⚠️ IMPORTANT: Vercel serverless functions don't support GridFS storage directly in multer
+// We use memory storage and then manually save to GridFS in the controller
 
 // File filter for audio files
 const audioFileFilter = (req, file, cb) => {
   const ext = path.extname(file.originalname).toLowerCase();
   const mimetype = file.mimetype;
+
+  console.log('📁 Audio file check:', {
+    originalname: file.originalname,
+    ext: ext,
+    mimetype: mimetype
+  });
 
   if (ALLOWED_AUDIO_TYPES.includes(mimetype) && ALLOWED_AUDIO_EXTENSIONS.includes(ext)) {
     cb(null, true);
@@ -81,6 +36,12 @@ const imageFileFilter = (req, file, cb) => {
   const ext = path.extname(file.originalname).toLowerCase();
   const mimetype = file.mimetype;
 
+  console.log('🖼️  Image file check:', {
+    originalname: file.originalname,
+    ext: ext,
+    mimetype: mimetype
+  });
+
   if (ALLOWED_IMAGE_TYPES.includes(mimetype) && ALLOWED_IMAGE_EXTENSIONS.includes(ext)) {
     cb(null, true);
   } else {
@@ -88,57 +49,77 @@ const imageFileFilter = (req, file, cb) => {
   }
 };
 
-// Multer upload for audio
+// Combined file filter for audio + image
+const songFileFilter = (req, file, cb) => {
+  const ext = path.extname(file.originalname).toLowerCase();
+  const mimetype = file.mimetype;
+
+  // Check if it's an audio file
+  if (file.fieldname === 'audioFile') {
+    if (ALLOWED_AUDIO_TYPES.includes(mimetype) && ALLOWED_AUDIO_EXTENSIONS.includes(ext)) {
+      return cb(null, true);
+    }
+    return cb(new Error(`Invalid audio file. Supported formats: ${ALLOWED_AUDIO_EXTENSIONS.join(', ')}`), false);
+  }
+
+  // Check if it's an image file
+  if (file.fieldname === 'coverImage') {
+    if (ALLOWED_IMAGE_TYPES.includes(mimetype) && ALLOWED_IMAGE_EXTENSIONS.includes(ext)) {
+      return cb(null, true);
+    }
+    return cb(new Error(`Invalid image file. Supported formats: ${ALLOWED_IMAGE_EXTENSIONS.join(', ')}`), false);
+  }
+
+  cb(new Error('Unexpected field name'), false);
+};
+
+// Memory storage for all uploads (required for Vercel)
+const storage = multer.memoryStorage();
+
+// Multer upload for audio only
 const uploadAudio = multer({
-  storage: audioStorage,
+  storage: storage,
   limits: { fileSize: MAX_AUDIO_SIZE },
   fileFilter: audioFileFilter
-});
+}).single('audioFile');
 
-// Multer upload for images
+// Multer upload for images only
 const uploadImage = multer({
-  storage: imageStorage,
+  storage: storage,
   limits: { fileSize: MAX_IMAGE_SIZE },
   fileFilter: imageFileFilter
-});
+}).single('coverImage');
 
 // Combined upload for song (audio + optional cover image)
 const uploadSong = multer({
-  storage: multer.memoryStorage(), // Temporary storage
+  storage: storage,
   limits: { 
     fileSize: MAX_AUDIO_SIZE, // Max for any single file
     files: 2 // Max 2 files (audio + image)
-  }
+  },
+  fileFilter: songFileFilter
 }).fields([
   { name: 'audioFile', maxCount: 1 },
   { name: 'coverImage', maxCount: 1 }
 ]);
 
-// Custom middleware to handle GridFS upload after multer
-const processFiles = async (req, res, next) => {
+// Validation middleware (runs after multer)
+const validateFiles = (req, res, next) => {
   try {
-    if (!req.files) {
-      return next();
+    if (!req.files && !req.file) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'No files uploaded',
+          statusCode: 400
+        }
+      });
     }
 
-    const uploadPromises = [];
-
-    // Process audio file
-    if (req.files.audioFile) {
+    // Validate audio file (for combined upload)
+    if (req.files && req.files.audioFile) {
       const audioFile = req.files.audioFile[0];
       
-      // Validate audio file
-      const audioExt = path.extname(audioFile.originalname).toLowerCase();
-      if (!ALLOWED_AUDIO_EXTENSIONS.includes(audioExt) || !ALLOWED_AUDIO_TYPES.includes(audioFile.mimetype)) {
-        return res.status(400).json({
-          success: false,
-          error: {
-            message: `Invalid audio file. Supported formats: ${ALLOWED_AUDIO_EXTENSIONS.join(', ')}`,
-            statusCode: 400
-          }
-        });
-      }
-
       if (audioFile.size > MAX_AUDIO_SIZE) {
         return res.status(400).json({
           success: false,
@@ -150,22 +131,10 @@ const processFiles = async (req, res, next) => {
       }
     }
 
-    // Process cover image
-    if (req.files.coverImage) {
+    // Validate cover image (for combined upload)
+    if (req.files && req.files.coverImage) {
       const imageFile = req.files.coverImage[0];
       
-      // Validate image file
-      const imageExt = path.extname(imageFile.originalname).toLowerCase();
-      if (!ALLOWED_IMAGE_EXTENSIONS.includes(imageExt) || !ALLOWED_IMAGE_TYPES.includes(imageFile.mimetype)) {
-        return res.status(400).json({
-          success: false,
-          error: {
-            message: `Invalid image file. Supported formats: ${ALLOWED_IMAGE_EXTENSIONS.join(', ')}`,
-            statusCode: 400
-          }
-        });
-      }
-
       if (imageFile.size > MAX_IMAGE_SIZE) {
         return res.status(400).json({
           success: false,
@@ -177,22 +146,88 @@ const processFiles = async (req, res, next) => {
       }
     }
 
+    // Validate single audio file
+    if (req.file && req.file.fieldname === 'audioFile') {
+      if (req.file.size > MAX_AUDIO_SIZE) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            message: `Audio file too large. Maximum size: ${MAX_AUDIO_SIZE / 1024 / 1024}MB`,
+            statusCode: 400
+          }
+        });
+      }
+    }
+
+    // Validate single image file
+    if (req.file && req.file.fieldname === 'coverImage') {
+      if (req.file.size > MAX_IMAGE_SIZE) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            message: `Image file too large. Maximum size: ${MAX_IMAGE_SIZE / 1024 / 1024}MB`,
+            statusCode: 400
+          }
+        });
+      }
+    }
+
+    console.log('✅ File validation passed');
     next();
+    
   } catch (error) {
-    console.error('File processing error:', error);
+    console.error('❌ File validation error:', error);
     res.status(500).json({
       success: false,
       error: {
-        message: 'File processing failed',
+        message: 'File validation failed',
         statusCode: 500
       }
     });
   }
 };
 
+// Helper function to save buffer to GridFS
+// This should be called in your controller after multer processes the file
+const saveToGridFS = async (buffer, filename, bucketName, metadata) => {
+  const mongoose = require('mongoose');
+  const { Readable } = require('stream');
+  
+  return new Promise((resolve, reject) => {
+    const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+      bucketName: bucketName
+    });
+
+    const uploadStream = bucket.openUploadStream(filename, {
+      metadata: metadata
+    });
+
+    // Create readable stream from buffer
+    const readableStream = new Readable();
+    readableStream.push(buffer);
+    readableStream.push(null);
+
+    readableStream.pipe(uploadStream);
+
+    uploadStream.on('error', (error) => {
+      console.error('GridFS upload error:', error);
+      reject(error);
+    });
+
+    uploadStream.on('finish', () => {
+      console.log('✅ File saved to GridFS:', filename);
+      resolve({
+        id: uploadStream.id,
+        filename: filename
+      });
+    });
+  });
+};
+
 module.exports = {
   uploadAudio,
   uploadImage,
   uploadSong,
-  processFiles
+  validateFiles,
+  saveToGridFS
 };

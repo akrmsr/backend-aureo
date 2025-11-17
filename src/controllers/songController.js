@@ -1,88 +1,105 @@
-// src/controllers/songController.js
-const mongoose = require('mongoose');
+// src/controllers/songController.js (Example upload handler)
 const Song = require('../models/Song');
-const { getGFS, getImageGFS } = require('../config/gridfs');
-const { 
-  getPagination, 
-  formatPaginationResponse, 
-  createError,
-  formatSongsResponse 
-} = require('../utils/helpers');
-const { GENRES } = require('../config/constants');
+const { saveToGridFS } = require('../middleware/upload');
+const crypto = require('crypto');
+const path = require('path');
 
-// @desc    Upload new song
-// @route   POST /api/songs/upload
-// @access  Private
-const uploadSong = async (req, res, next) => {
+// Upload a new song
+const uploadSong = async (req, res) => {
   try {
-    const { title, artist, album, genre } = req.body;
-
-    // Check if audio file exists
+    console.log('📤 Upload song request received');
+    
+    // Check if files were uploaded
     if (!req.files || !req.files.audioFile) {
-      return next(createError('Audio file is required', 400));
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Audio file is required',
+          statusCode: 400
+        }
+      });
     }
 
+    // Get files from request
     const audioFile = req.files.audioFile[0];
     const coverImage = req.files.coverImage ? req.files.coverImage[0] : null;
 
-    // Upload audio to GridFS
-    const { gridfsBucket } = getGFS();
-    const audioUploadStream = gridfsBucket.openUploadStream(audioFile.originalname, {
-      metadata: {
+    // Get song metadata from request body
+    const { title, artist, album, genre, duration } = req.body;
+
+    // Validate required fields
+    if (!title || !artist || !genre) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Title, artist, and genre are required',
+          statusCode: 400
+        }
+      });
+    }
+
+    console.log('📁 Saving audio file to GridFS...');
+    
+    // Save audio file to GridFS
+    const audioFilename = crypto.randomBytes(16).toString('hex') + path.extname(audioFile.originalname);
+    const audioGridFS = await saveToGridFS(
+      audioFile.buffer,
+      audioFilename,
+      'songs',
+      {
         originalName: audioFile.originalname,
+        mimetype: audioFile.mimetype,
+        size: audioFile.size,
         uploadedBy: req.user._id,
         uploadDate: new Date()
       }
-    });
+    );
 
-    audioUploadStream.end(audioFile.buffer);
-
-    await new Promise((resolve, reject) => {
-      audioUploadStream.on('finish', resolve);
-      audioUploadStream.on('error', reject);
-    });
-
-    const audioFileId = audioUploadStream.id;
-    const audioFilename = audioFile.originalname;
-
-    // Upload cover image to GridFS (if provided)
     let coverImageId = null;
     let coverImageFilename = null;
 
+    // Save cover image to GridFS if provided
     if (coverImage) {
-      const { gridfsBucket: imageGridfsBucket } = getImageGFS();
-      const imageUploadStream = imageGridfsBucket.openUploadStream(coverImage.originalname, {
-        metadata: {
+      console.log('🖼️  Saving cover image to GridFS...');
+      
+      const imageFilename = crypto.randomBytes(16).toString('hex') + path.extname(coverImage.originalname);
+      const imageGridFS = await saveToGridFS(
+        coverImage.buffer,
+        imageFilename,
+        'images',
+        {
           originalName: coverImage.originalname,
+          mimetype: coverImage.mimetype,
+          size: coverImage.size,
           uploadedBy: req.user._id,
           uploadDate: new Date()
         }
-      });
-
-      imageUploadStream.end(coverImage.buffer);
-
-      await new Promise((resolve, reject) => {
-        imageUploadStream.on('finish', resolve);
-        imageUploadStream.on('error', reject);
-      });
-
-      coverImageId = imageUploadStream.id;
-      coverImageFilename = coverImage.originalname;
+      );
+      
+      coverImageId = imageGridFS.id;
+      coverImageFilename = imageFilename;
     }
 
+    console.log('💾 Creating song document...');
+
     // Create song document
-    const song = await Song.create({
-      title,
-      artist,
-      album: album || null,
+    const song = new Song({
+      title: title.trim(),
+      artist: artist.trim(),
+      album: album ? album.trim() : null,
       genre,
-      audioFileId,
-      audioFilename,
+      duration: parseInt(duration) || 0,
+      audioFileId: audioGridFS.id,
+      audioFilename: audioFilename,
       coverImageId,
       coverImageFilename,
       uploadedBy: req.user._id,
-      isDefault: false
+      isDefault: req.user.role === 'admin' // Admin uploads are default
     });
+
+    await song.save();
+
+    console.log('✅ Song uploaded successfully:', song._id);
 
     res.status(201).json({
       success: true,
@@ -94,423 +111,172 @@ const uploadSong = async (req, res, next) => {
         album: song.album,
         genre: song.genre,
         duration: song.duration,
-        audioFileId: song.audioFileId,
-        coverImageId: song.coverImageId,
-        audioStreamUrl: `/api/songs/stream/audio/${song.audioFileId}`,
-        coverImageUrl: song.coverImageId ? `/api/songs/stream/image/${song.coverImageId}` : null,
+        audioStreamUrl: song.audioStreamUrl,
+        coverImageUrl: song.coverImageUrl,
         uploadedBy: song.uploadedBy,
         isDefault: song.isDefault,
-        plays: song.plays,
         createdAt: song.createdAt
       }
     });
 
   } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get all songs (user's songs + default songs)
-// @route   GET /api/songs
-// @access  Private
-const getAllSongs = async (req, res, next) => {
-  try {
-    const { page, limit, skip } = getPagination(req.query.page, req.query.limit);
-
-    // Get songs that are either default or uploaded by current user
-    const songs = await Song.find({
-      $or: [
-        { isDefault: true },
-        { uploadedBy: req.user._id }
-      ]
-    })
-    .populate('uploadedBy', 'username')
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limit);
-
-    const total = await Song.countDocuments({
-      $or: [
-        { isDefault: true },
-        { uploadedBy: req.user._id }
-      ]
-    });
-
-    const formattedSongs = formatSongsResponse(songs);
-
-    res.status(200).json({
-      success: true,
-      ...formatPaginationResponse(formattedSongs, total, page, limit)
-    });
-
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get only current user's uploaded songs
-// @route   GET /api/songs/my-songs
-// @access  Private
-const getMySongs = async (req, res, next) => {
-  try {
-    const { page, limit, skip } = getPagination(req.query.page, req.query.limit);
-
-    const songs = await Song.find({ uploadedBy: req.user._id })
-      .populate('uploadedBy', 'username')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const total = await Song.countDocuments({ uploadedBy: req.user._id });
-
-    const formattedSongs = formatSongsResponse(songs);
-
-    res.status(200).json({
-      success: true,
-      ...formatPaginationResponse(formattedSongs, total, page, limit)
-    });
-
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get single song by ID
-// @route   GET /api/songs/:id
-// @access  Private
-const getSongById = async (req, res, next) => {
-  try {
-    const song = await Song.findById(req.params.id)
-      .populate('uploadedBy', 'username email');
-
-    if (!song) {
-      return next(createError('Song not found', 404));
-    }
-
-    // Check if user has access to this song
-    if (!song.isDefault && song.uploadedBy._id.toString() !== req.user._id.toString()) {
-      return next(createError('Access denied', 403));
-    }
-
-    res.status(200).json({
-      success: true,
-      song: {
-        _id: song._id,
-        title: song.title,
-        artist: song.artist,
-        album: song.album,
-        genre: song.genre,
-        duration: song.duration,
-        audioFileId: song.audioFileId,
-        coverImageId: song.coverImageId,
-        audioStreamUrl: `/api/songs/stream/audio/${song.audioFileId}`,
-        coverImageUrl: song.coverImageId ? `/api/songs/stream/image/${song.coverImageId}` : null,
-        uploadedBy: song.uploadedBy,
-        isDefault: song.isDefault,
-        plays: song.plays,
-        createdAt: song.createdAt,
-        updatedAt: song.updatedAt
+    console.error('❌ Upload song error:', error);
+    
+    // Clean up uploaded files if song creation fails
+    // TODO: Implement GridFS cleanup if needed
+    
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Failed to upload song',
+        statusCode: 500,
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       }
     });
-
-  } catch (error) {
-    next(error);
   }
 };
 
-// @desc    Update song metadata
-// @route   PUT /api/songs/:id
-// @access  Private
-const updateSong = async (req, res, next) => {
+// Stream audio file
+const streamAudio = async (req, res) => {
   try {
-    const { title, artist, album, genre } = req.body;
+    const { fileId } = req.params;
+    const mongoose = require('mongoose');
 
-    const song = await Song.findById(req.params.id);
-
-    if (!song) {
-      return next(createError('Song not found', 404));
-    }
-
-    // Check if user owns this song
-    if (song.uploadedBy.toString() !== req.user._id.toString()) {
-      return next(createError('You can only update your own songs', 403));
-    }
-
-    // Update fields if provided
-    if (title) song.title = title;
-    if (artist) song.artist = artist;
-    if (album !== undefined) song.album = album;
-    if (genre) song.genre = genre;
-
-    // Handle cover image replacement
-    if (req.files && req.files.coverImage) {
-      const coverImage = req.files.coverImage[0];
-
-      // Delete old cover image if exists
-      if (song.coverImageId) {
-        const { gridfsBucket: imageGridfsBucket } = getImageGFS();
-        await imageGridfsBucket.delete(song.coverImageId);
-      }
-
-      // Upload new cover image
-      const { gridfsBucket: imageGridfsBucket } = getImageGFS();
-      const imageUploadStream = imageGridfsBucket.openUploadStream(coverImage.originalname, {
-        metadata: {
-          originalName: coverImage.originalname,
-          uploadedBy: req.user._id,
-          uploadDate: new Date()
+    if (!mongoose.Types.ObjectId.isValid(fileId)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Invalid file ID',
+          statusCode: 400
         }
       });
+    }
 
-      imageUploadStream.end(coverImage.buffer);
+    const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+      bucketName: 'songs'
+    });
 
-      await new Promise((resolve, reject) => {
-        imageUploadStream.on('finish', resolve);
-        imageUploadStream.on('error', reject);
+    // Find file
+    const files = await bucket.find({ _id: new mongoose.Types.ObjectId(fileId) }).toArray();
+    
+    if (!files || files.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          message: 'Audio file not found',
+          statusCode: 404
+        }
+      });
+    }
+
+    const file = files[0];
+
+    // Set headers
+    res.set({
+      'Content-Type': file.metadata?.mimetype || 'audio/mpeg',
+      'Content-Length': file.length,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'public, max-age=31536000'
+    });
+
+    // Handle range requests for audio seeking
+    const range = req.headers.range;
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : file.length - 1;
+      const chunksize = (end - start) + 1;
+
+      res.status(206);
+      res.set({
+        'Content-Range': `bytes ${start}-${end}/${file.length}`,
+        'Content-Length': chunksize
       });
 
-      song.coverImageId = imageUploadStream.id;
-      song.coverImageFilename = coverImage.originalname;
+      const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(fileId), {
+        start,
+        end: end + 1
+      });
+
+      downloadStream.pipe(res);
+    } else {
+      // Stream entire file
+      const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(fileId));
+      downloadStream.pipe(res);
     }
 
-    await song.save();
-
-    res.status(200).json({
-      success: true,
-      message: 'Song updated successfully',
-      song: {
-        _id: song._id,
-        title: song.title,
-        artist: song.artist,
-        album: song.album,
-        genre: song.genre,
-        duration: song.duration,
-        audioStreamUrl: `/api/songs/stream/audio/${song.audioFileId}`,
-        coverImageUrl: song.coverImageId ? `/api/songs/stream/image/${song.coverImageId}` : null,
-        plays: song.plays,
-        updatedAt: song.updatedAt
+  } catch (error) {
+    console.error('❌ Stream audio error:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Failed to stream audio',
+        statusCode: 500
       }
     });
-
-  } catch (error) {
-    next(error);
   }
 };
 
-// @desc    Delete song
-// @route   DELETE /api/songs/:id
-// @access  Private
-const deleteSong = async (req, res, next) => {
+// Stream cover image
+const streamImage = async (req, res) => {
   try {
-    const song = await Song.findById(req.params.id);
+    const { fileId } = req.params;
+    const mongoose = require('mongoose');
 
-    if (!song) {
-      return next(createError('Song not found', 404));
+    if (!mongoose.Types.ObjectId.isValid(fileId)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: 'Invalid file ID',
+          statusCode: 400
+        }
+      });
     }
 
-    // Check if user owns this song
-    if (song.uploadedBy.toString() !== req.user._id.toString()) {
-      return next(createError('You can only delete your own songs', 403));
-    }
-
-    // Delete audio file from GridFS
-    const { gridfsBucket } = getGFS();
-    await gridfsBucket.delete(song.audioFileId);
-
-    // Delete cover image from GridFS if exists
-    if (song.coverImageId) {
-      const { gridfsBucket: imageGridfsBucket } = getImageGFS();
-      await imageGridfsBucket.delete(song.coverImageId);
-    }
-
-    // Delete song document
-    await Song.findByIdAndDelete(req.params.id);
-
-    res.status(200).json({
-      success: true,
-      message: 'Song deleted successfully'
+    const bucket = new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+      bucketName: 'images'
     });
 
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Stream audio file
-// @route   GET /api/songs/stream/audio/:id
-// @access  Private
-const streamAudio = async (req, res, next) => {
-  try {
-    const fileId = new mongoose.Types.ObjectId(req.params.id);
-
-    // Find song by audioFileId
-    const song = await Song.findOne({ audioFileId: fileId });
-
-    if (!song) {
-      return next(createError('Audio file not found', 404));
-    }
-
-    // Check access
-    if (!song.isDefault && song.uploadedBy.toString() !== req.user._id.toString()) {
-      return next(createError('Access denied', 403));
-    }
-
-    // Increment play count
-    song.plays += 1;
-    await song.save();
-
-    const { gridfsBucket } = getGFS();
-
-    // Get file info
-    const files = await gridfsBucket.find({ _id: fileId }).toArray();
-
+    // Find file
+    const files = await bucket.find({ _id: new mongoose.Types.ObjectId(fileId) }).toArray();
+    
     if (!files || files.length === 0) {
-      return next(createError('Audio file not found', 404));
+      return res.status(404).json({
+        success: false,
+        error: {
+          message: 'Image file not found',
+          statusCode: 404
+        }
+      });
     }
 
     const file = files[0];
 
     // Set headers
     res.set({
-      'Content-Type': file.contentType || 'audio/mpeg',
+      'Content-Type': file.metadata?.mimetype || 'image/jpeg',
       'Content-Length': file.length,
-      'Accept-Ranges': 'bytes'
+      'Cache-Control': 'public, max-age=31536000'
     });
 
-    // Stream the file
-    const downloadStream = gridfsBucket.openDownloadStream(fileId);
+    // Stream image
+    const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(fileId));
     downloadStream.pipe(res);
 
-    downloadStream.on('error', (error) => {
-      next(error);
-    });
-
   } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get cover image
-// @route   GET /api/songs/stream/image/:id
-// @access  Private
-const getCoverImage = async (req, res, next) => {
-  try {
-    const fileId = new mongoose.Types.ObjectId(req.params.id);
-
-    // Find song by coverImageId
-    const song = await Song.findOne({ coverImageId: fileId });
-
-    if (!song) {
-      return next(createError('Image not found', 404));
-    }
-
-    // Check access
-    if (!song.isDefault && song.uploadedBy.toString() !== req.user._id.toString()) {
-      return next(createError('Access denied', 403));
-    }
-
-    const { gridfsBucket: imageGridfsBucket } = getImageGFS();
-
-    // Get file info
-    const files = await imageGridfsBucket.find({ _id: fileId }).toArray();
-
-    if (!files || files.length === 0) {
-      return next(createError('Image not found', 404));
-    }
-
-    const file = files[0];
-
-    // Set headers
-    res.set({
-      'Content-Type': file.contentType || 'image/jpeg',
-      'Content-Length': file.length
+    console.error('❌ Stream image error:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        message: 'Failed to stream image',
+        statusCode: 500
+      }
     });
-
-    // Stream the image
-    const downloadStream = imageGridfsBucket.openDownloadStream(fileId);
-    downloadStream.pipe(res);
-
-    downloadStream.on('error', (error) => {
-      next(error);
-    });
-
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Search songs
-// @route   GET /api/songs/search
-// @access  Private
-const searchSongs = async (req, res, next) => {
-  try {
-    const { q, genre, sortBy = 'createdAt', order = 'desc' } = req.query;
-    const { page, limit, skip } = getPagination(req.query.page, req.query.limit);
-
-    let query = {
-      $or: [
-        { isDefault: true },
-        { uploadedBy: req.user._id }
-      ]
-    };
-
-    // Add text search
-    if (q) {
-      query.$text = { $search: q };
-    }
-
-    // Add genre filter
-    if (genre) {
-      query.genre = genre;
-    }
-
-    // Build sort object
-    const sortOrder = order === 'asc' ? 1 : -1;
-    const sortObj = { [sortBy]: sortOrder };
-
-    const songs = await Song.find(query)
-      .populate('uploadedBy', 'username')
-      .sort(sortObj)
-      .skip(skip)
-      .limit(limit);
-
-    const total = await Song.countDocuments(query);
-
-    const formattedSongs = formatSongsResponse(songs);
-
-    res.status(200).json({
-      success: true,
-      ...formatPaginationResponse(formattedSongs, total, page, limit)
-    });
-
-  } catch (error) {
-    next(error);
-  }
-};
-
-// @desc    Get all genres
-// @route   GET /api/songs/genres
-// @access  Public
-const getGenres = async (req, res, next) => {
-  try {
-    res.status(200).json({
-      success: true,
-      genres: GENRES
-    });
-  } catch (error) {
-    next(error);
   }
 };
 
 module.exports = {
   uploadSong,
-  getAllSongs,
-  getMySongs,
-  getSongById,
-  updateSong,
-  deleteSong,
   streamAudio,
-  getCoverImage,
-  searchSongs,
-  getGenres
+  streamImage
 };
