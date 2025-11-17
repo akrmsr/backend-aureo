@@ -18,9 +18,11 @@ const sessionConfig = {
     maxAge: SESSION_CONFIG.MAX_AGE,
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production', // HTTPS only in production
-    sameSite: 'strict'
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax', // 'none' for cross-site cookies in production
+    domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined // Allow subdomain cookies
   },
-  name: SESSION_CONFIG.COOKIE_NAME
+  name: SESSION_CONFIG.COOKIE_NAME,
+  proxy: true // Trust proxy for Vercel
 };
 
 module.exports = sessionConfig;

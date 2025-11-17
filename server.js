@@ -39,8 +39,11 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 };
 
+// Apply CORS middleware (handles preflight OPTIONS requests automatically)
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+
+// ❌ REMOVED: app.options('*', cors(corsOptions)); 
+// This line causes PathError in Vercel serverless environment
 
 // ----------------------
 // Middleware
@@ -100,34 +103,41 @@ app.use(notFound);
 app.use(errorHandler);
 
 // ----------------------
-// Start server
+// Export for Vercel Serverless
 // ----------------------
-const PORT = process.env.PORT || 5000;
-
-const server = app.listen(PORT, () => {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode`);
-  console.log(`🎵 Music Player API listening on port ${PORT}`);
-  console.log(`📍 Frontend URL: ${FRONTEND_URL}`);
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('Available routes:');
-  console.log(`  - Auth: /api/auth`);
-  console.log(`  - Songs: /api/songs`);
-  console.log(`  - Admin: /api/admin`);
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-});
+module.exports = app;
 
 // ----------------------
-// Graceful shutdown
+// Start server (for local development only)
 // ----------------------
-process.on('unhandledRejection', (err) => {
-  console.error('❌ Unhandled Rejection:', err);
-  server.close(() => process.exit(1));
-});
-
-process.on('SIGTERM', () => {
-  console.log('👋 SIGTERM received, shutting down gracefully');
-  server.close(() => {
-    console.log('✅ Process terminated');
+if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
+  
+  const server = app.listen(PORT, () => {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode`);
+    console.log(`🎵 Music Player API listening on port ${PORT}`);
+    console.log(`📍 Frontend URL: ${FRONTEND_URL}`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('Available routes:');
+    console.log(`  - Auth: /api/auth`);
+    console.log(`  - Songs: /api/songs`);
+    console.log(`  - Admin: /api/admin`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   });
-});
+
+  // ----------------------
+  // Graceful shutdown
+  // ----------------------
+  process.on('unhandledRejection', (err) => {
+    console.error('❌ Unhandled Rejection:', err);
+    server.close(() => process.exit(1));
+  });
+
+  process.on('SIGTERM', () => {
+    console.log('👋 SIGTERM received, shutting down gracefully');
+    server.close(() => {
+      console.log('✅ Process terminated');
+    });
+  });
+}

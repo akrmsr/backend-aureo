@@ -7,7 +7,7 @@ const userSchema = new mongoose.Schema({
   username: {
     type: String,
     required: [true, 'Username is required'],
-    unique: true,
+    unique: true, // This creates an index automatically
     trim: true,
     minlength: [3, 'Username must be at least 3 characters long'],
     maxlength: [30, 'Username cannot exceed 30 characters']
@@ -15,7 +15,7 @@ const userSchema = new mongoose.Schema({
   email: {
     type: String,
     required: [true, 'Email is required'],
-    unique: true,
+    unique: true, // This creates an index automatically
     lowercase: true,
     trim: true,
     match: [/^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email']
@@ -72,9 +72,9 @@ userSchema.methods.toJSON = function() {
   return user;
 };
 
-// Create indexes
-userSchema.index({ username: 1 });
-userSchema.index({ email: 1 });
+// ❌ REMOVED duplicate indexes - unique: true already creates indexes
+// userSchema.index({ username: 1 });
+// userSchema.index({ email: 1 });
 
 const User = mongoose.model('User', userSchema);
 
