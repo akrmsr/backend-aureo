@@ -3,6 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const cors = require('cors');
+const path = require('path');
 const connectDB = require('./src/config/database');
 const sessionConfig = require('./src/config/session');
 const { initGridFS } = require('./src/config/gridfs');
@@ -16,9 +17,6 @@ const adminRoutes = require('./src/routes/admin');
 // Initialize Express app
 const app = express();
 
-// Serve static frontend files (optional if frontend is separate)
-app.use(express.static('public'));
-
 // Connect to MongoDB
 connectDB();
 
@@ -31,18 +29,17 @@ mongoose.connection.once('open', () => {
 // ----------------------
 // CORS configuration
 // ----------------------
-// Hardcode your frontend URL here
-const FRONTEND_URL = 'https://frontend-aureo.vercel.app';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://frontend-aureo.vercel.app';
 
 const corsOptions = {
-  origin: FRONTEND_URL, // must be the exact frontend URL
-  credentials: true,    // allow cookies/sessions
-  optionsSuccessStatus: 200
+  origin: FRONTEND_URL,
+  credentials: true,
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 };
 
 app.use(cors(corsOptions));
-
-// Handle preflight OPTIONS requests for all routes
 app.options('*', cors(corsOptions));
 
 // ----------------------
@@ -54,6 +51,16 @@ app.use(express.urlencoded({ extended: true }));
 // Session middleware
 app.use(session(sessionConfig));
 
+// ----------------------
+// Static files & Favicon
+// ----------------------
+app.use(express.static('public'));
+
+// Handle favicon (prevent 500 error)
+app.get('/favicon.ico', (req, res) => {
+  res.status(204).end();
+});
+
 // Health check route
 app.get('/', (req, res) => {
   res.json({
@@ -64,7 +71,18 @@ app.get('/', (req, res) => {
       auth: '/api/auth',
       songs: '/api/songs',
       admin: '/api/admin'
-    }
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
+// API health check
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -84,12 +102,13 @@ app.use(errorHandler);
 // ----------------------
 // Start server
 // ----------------------
-const PORT = process.env.PORT || 5000; // Render provides process.env.PORT automatically
-app.listen(PORT, () => {
+const PORT = process.env.PORT || 5000;
+
+const server = app.listen(PORT, () => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log(`🚀 Server running in ${process.env.NODE_ENV || 'development'} mode`);
   console.log(`🎵 Music Player API listening on port ${PORT}`);
-  console.log(`📍 Base URL: ${FRONTEND_URL}`);
+  console.log(`📍 Frontend URL: ${FRONTEND_URL}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('Available routes:');
   console.log(`  - Auth: /api/auth`);
@@ -99,9 +118,16 @@ app.listen(PORT, () => {
 });
 
 // ----------------------
-// Handle unhandled promise rejections
+// Graceful shutdown
 // ----------------------
 process.on('unhandledRejection', (err) => {
   console.error('❌ Unhandled Rejection:', err);
-  process.exit(1);
+  server.close(() => process.exit(1));
+});
+
+process.on('SIGTERM', () => {
+  console.log('👋 SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('✅ Process terminated');
+  });
 });
