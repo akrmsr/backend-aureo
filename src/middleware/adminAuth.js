@@ -2,6 +2,7 @@
 const { USER_ROLES } = require('../config/constants');
 
 // Check if user is admin
+// Note: This should be used AFTER isAuthenticated middleware
 const isAdmin = (req, res, next) => {
   try {
     // Check if user exists (should be set by isAuthenticated middleware)
@@ -9,7 +10,7 @@ const isAdmin = (req, res, next) => {
       return res.status(401).json({
         success: false,
         error: {
-          message: 'Authentication required',
+          message: 'Authentication required. Please login first.',
           statusCode: 401
         }
       });
@@ -26,15 +27,17 @@ const isAdmin = (req, res, next) => {
       });
     }
 
+    // User is admin, proceed
     next();
     
   } catch (error) {
-    console.error('Admin authorization error:', error);
+    console.error('❌ Admin authorization error:', error);
     res.status(500).json({
       success: false,
       error: {
         message: 'Authorization failed',
-        statusCode: 500
+        statusCode: 500,
+        details: process.env.NODE_ENV === 'development' ? error.message : undefined
       }
     });
   }
